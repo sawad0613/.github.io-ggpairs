@@ -1,0 +1,1038 @@
+---
+title: "【R】ggpairs()あれこれ"
+subtitle: "Rで多変数の関係性を一気に可視化"
+author: 
+  name: "澤田昂大 (Gota Sawada)"
+  affiliation: "名古屋大学教育発達科学研究科 M2"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+    pandoc_args: ["--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+      ]
+    toc_depth: 5
+---
+
+
+```{r knitr_init, echo=FALSE, cache=FALSE, warning=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+```{r setup, include=FALSE}
+library("tidyverse")
+library("psych")
+library("GGally")
+library("ggthemes")
+
+```
+
+#ggpairsとは
+
+- ggplot系可視化パッケージ群であるGGallyパッケージに収録されている
+- ggpairsは特に多変量の可視化に特化
+- 複数の変数や，変数間の関係をまるごと1つの図に可視化
+- baseのgraphicsに収録されているpanel.pairs()のggplot版，という感じ
+- ggplotの知識を生かして自分好みにカスタム可能(自由度がとても高い)
+
+<br/>
+<br/>
+
+##こんな図が簡単に作れます
+
+```{r, fig.width=10, fig.height=8, echo = FALSE}
+iris %>% 
+  ggpairs(columns = c("Sepal.Length", "Sepal.Width",
+                      "Petal.Length", "Petal.Width"),
+    
+          mapping = aes(color = Species),
+          #Speciesで色分け
+          
+          upper = list(continuous = wrap("cor", size = 4)),
+          lower = list(continuous = "smooth"),
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          ) +
+  theme_classic()
+
+```
+
+- 分布や相関関係がひと目で理解できる！
+
+<br/>
+
+
+##少しの注意事項
+
+- たくさんの変数を抱えたデータフレームをそのまま突っ込むのはやめたほうがよいです
+    - 思いの外，負荷はかかるっぽい
+    - そもそも，1枚にあまり多くの変数が載っているとみづらい
+    - 自分の場合，10変数以上は厳しかった(重くて描画されない)
+  
+<br/>
+
+- 本ページではスクリプトにパイプ( %>% )を用いています
+    - 慣れるとこっちの方法が楽だと思います
+    - 詳細は割愛しますが，「先のデータフレームを後ろの関数に送り込む」という記述方式です
+    - ご存知ない方は，「dplyr, パイプ」等で調べてみて下さい
+
+<br/>
+<br/>
+
+###本ページでの使用パッケージ
+
+```{r}
+library("tidyverse") #ggplot2収録
+library("GGally") #ggpairsはここに収録
+library("ggthemes") #ggplot2のテーマや色を拡張できるパッケージ
+```
+
+- Rstudioを使っています
+
+<br/>
+<br/>
+
+#参考になるページ一覧
+
+- <a href="https://www.rdocumentation.org/packages/GGally/versions/1.4.0/topics/ggpairs"target="_blank">ggpairs R Documentation</a>
+    - 公式のR Documentation。実際の画像が無いのが残念だが，詳細はここで確認可能
+
+- <a href="https://ggobi.github.io/ggally/#ggallyggpairs"target="_blank">GGally GitHub Pages</a>
+    - 様々な使用例も収録
+    
+- <a href="https://assabu.exblog.jp/28933942/"target="_blank">GGallyパッケージのggpair関数を使いこなすための覚え書き</a>
+    - 日本語では一番わかりやすいページかも。本ページも半分くらいこれのなぞり書き...
+
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+#iris&diamondsデータでとりあえず実践
+
+##サンプルデータの概要
+```{r}
+head(iris)
+```
+
+```{r}
+head(diamonds)
+```
+
+<br/>
+
+- 連続量(num)と離散量(fac)の区別がけっこう大事です
+
+- Iris: アヤメ
+    - Sepal.Length: がく片の長さ(num)
+    - Sepal.Width: がく片の幅(num)
+    - Petal.Length: 花びらの長さ(num)
+    - Petal.Width: 花びらの幅(num)
+    - Species: 種類(fac)
+        - Setosa(ヒオウギアヤメ)，Versicolor(ハナショウブ)，Virginica(カキツバタ)
+
+
+<br/>
+<br/>
+
+##まずは何も設定せずにggpairs()に突っ込んでみる
+
+```{r}
+p0 <- 
+iris %>% ggpairs()
+
+#p0 <- ggpairs(iris) と挙動は全く同じ
+
+p0
+```
+
+- 出力には多少の時間がかかります
+- すでにそれっぽいのが出てくる
+
+<br/>
+<br/>
+
+###表示されるパネルの説明
+
+- <a href="https://assabu.exblog.jp/28933942/"target="_blank">GGallyパッケージのggpair関数を使いこなすための覚え書き</a> こちらのページが非常にわかりやすいので要チェック
+
+<br/>
+
+####パネル名称と図の見方
+
+- パネル名称
+    - **upper**: 対角線を挟んで右上側
+    - **lower**: 対角線を挟んで左下側
+    - **diag**: 対角線上
+
+- 図の見方
+    - 図全体の縦横に変数名が並ぶ
+    - 同じ変数名が重なる対角線上のdiagは，当該変数についての記述
+    - ２変数の関係は，upperとlowerの2つの情報をそれぞれ組み合わせてみることができる
+
+<br/>
+
+####各パネルでの図示方法(デフォルト)
+
+- upper
+    - 連続量×連続量: 相関係数
+    - 連続量×離散量(factor): 箱ひげ図
+    - 離散量×離散量: factor別棒グラフ
+
+- lower
+    - 連続量×連続量: 散布図
+    - 連続量×離散量: factor別ヒストグラム
+    - 離散量×離散量: factor別棒グラフ
+    
+- diag
+    - 連続量: 密度図
+    - 離散量: 棒グラフ
+    
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+##図示形式を指定してみる
+
+**指定方法**
+
+- ggpairs()内で，
+    - upper = list(), lower = list(), diag = list(), のlist()内に図示形式を指定
+    - 図示形式は以下
+        - 既存関数から選択する(かんたん)
+        - wrapを使って既存関数に少し手を加える(ggplot2の知識があったほうがよい)
+        - オリジナルのggplot関数を定義し，呼び出し(gglplot2の知識が必要)
+        
+- 形式を指定する際は，変数型の組み合わせ毎に指定する
+    - 連続量×連続量(continuous)
+    - 連続量×離散量(combo)
+    - 離散量×離散量(discrete)
+
+- **パネル位置＝list(変数の種別=グラフの種類)** のようになる
+    
+###例
+
+```{r, fig.width=10, fig.height=8}
+p1 <- 
+iris %>% 
+  ggpairs(
+    upper=list(continuous="smooth_loess", combo="facethist"),
+     # upperの連続×連続を平滑化線型に，連続×離散をfactor別ヒストグラムに変更
+    diag=list(continuous="barDiag"),
+     # diagの連続×連続をヒストグラムに変更
+    lower=list(continuous="cor", combo ="box")
+     # lowerの連続×連続を相関係数に，連続×離散をボックスプロットに変更
+          )
+p1
+```
+
+- 選択できる既存オプションは下記 *図示形式一覧* または ?ggpairs ヘルプ等参照
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+#図示形式一覧
+
+- 指定できる既存オプション一覧 (参考：<a href="https://ggobi.github.io/ggally/#ggallyggpairs"target="_blank">GGally GitHub Pages</a>)
+- または ?ggpairs のヘルプに詳しい(Rstudio上で ?ggpairs を実行)
+
+##変数間パネル(upper&lower)
+###continuous (連続量×連続量) {.tabset .tabset-fade}
+
+(タブをクリックすると切り替わります)
+
+####"points" = 散布図 (lowerデフォルト)
+
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length) %>%  #変数の一部を選択
+  ggpairs(upper = list(continuous = "points"))
+```
+
+upper(右上)を変更中...
+
+<br/>
+<br/>
+
+####"smooth" = 回帰線(散布図・信頼区間付き)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length) %>%  #変数の一部を選択
+  ggpairs(upper = list(continuous = "smooth"))
+```
+<br/>
+<br/>
+
+####"smooth_loess" = 平滑化線(散布図・信頼区間付き)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length) %>%  #変数の一部を選択
+  ggpairs(upper = list(continuous = "smooth_loess"))
+```
+<br/>
+<br/>
+
+
+####"denty" = 等高線 (どう使う??)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length) %>%  #変数の一部を選択
+  ggpairs(upper = list(continuous = "density"))
+```
+<br/>
+<br/>
+
+
+####"cor" = 相関係数 (upperデフォルト)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length) %>%  #変数の一部を選択
+  ggpairs(upper = list(continuous = "cor"))
+```
+
+<br/>
+<br/>
+
+
+####"blank" = 表示しない
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length) %>%  #変数の一部を選択
+  ggpairs(upper = list(continuous = "blank"))
+```
+<br/>
+<br/>
+
+###combo (連続量×離散量) {.tabset .tabset-fade}
+
+####"box" = 箱ひげ図
+
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(upper = list(combo = "box"))
+```
+
+<br/>
+<br/>
+
+
+####"box_no_facet" = ファセットしない箱ひげ図 (upperデフォルト)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(upper = list(combo = "box_no_facet"))
+```
+
+- あまり見た目変わらないが，グループを分けて横並べしない，ということらしい
+
+<br/>
+<br/>
+
+
+####"dot" = ドット
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(upper = list(combo = "dot"))
+```
+
+- グループ内での左右のばらつきには多分意味はない
+
+<br/>
+<br/>
+
+
+####"dot_no_facet" = ファセットしないドット
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(upper = list(combo = "dot_no_facet"))
+```
+
+- 位置づけは"box_no_facet"と同じ
+
+<br/>
+<br/>
+
+
+####"facethist" = グループ別ヒストグラム (lowerデフォルト)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(upper = list(combo = "facethist"))
+```
+
+<br/>
+<br/>
+
+
+####"facetdensity" = グループ別密度図
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(upper = list(combo = "facetdensity"))
+```
+
+- これも横向き(lower)の方が見やすいかな?
+- あと色も付けてみよう
+
+<br/>
+
+
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(lower = list(combo = "facetdensity"),
+          mapping = aes(color = Species)) #そのままでは見づらいので色をつけておく
+```
+
+- グループ別の色付けは下記 *グループ変数(エステティック)の追加*を参照
+
+<br/>
+<br/>
+
+
+####"denstrip" = 帯状密度図
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>%  #変数の一部を選択
+  ggpairs(upper = list(combo = "denstrip"))
+```
+
+<br/>
+<br/>
+
+
+####"blank" = 表示しない
+
+- continuousと同じなので割愛
+
+
+<br/>
+<br/>
+
+###discrete(離散量×離散量) {.tabset .tabset-fade}
+
+- irisではなくdiamondsデータを使用
+
+<br/>
+
+####"facetbar" = 棒グラフ(デフォルト)
+```{r}
+diamonds %>% 
+  dplyr::select(color, cut) %>% 
+  ggpairs(upper = list(discrete = "facetbar"),
+          mapping = aes(color = cut)) #見づらいのでグループ毎に色をつける
+```
+<br/>
+<br/>
+
+
+####"ratio" = よくわからん(情報募集中)
+```{r}
+diamonds %>% 
+  dplyr::select(color, cut) %>% 
+  ggpairs(upper = list(discrete = "ratio"),
+          mapping = aes(color = cut)) #見づらいのでグループ毎に色をつける
+```
+
+- 面積でなにかを表している???
+
+<br/>
+<br/>
+
+
+####"blank" = 表示しない
+
+- 同じなので割愛
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+##変数内パネル(diag)
+
+###continuous (連続量) {.tabset .tabset-fade}
+
+<br/>
+
+####"densityDiag" = 密度図 (デフォルト)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>% 
+  ggpairs(diag = list(continuous = "densityDiag"))
+```
+<br/>
+<br/>
+
+####"barDiag" : ヒストグラム
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>% 
+  ggpairs(diag = list(continuous = "barDiag"))
+```
+
+<br/>
+<br/>
+
+
+####"blankDiag" : 表示しない
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>% 
+  ggpairs(diag = list(continuous = "blankDiag"))
+```
+
+<br/>
+<br/>
+
+
+###discrete (離散量) {.tabset .tabset-fade}
+
+- 棒グラフ(デフォルト) か 表示しないのみ
+<br/>
+
+
+####"barDiag" : 棒グラフ(デフォルト)
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>% 
+  ggpairs(diag = list(discrete = "barDiag"))
+```
+
+- irisは3種のサンプル数が同じなので殺風景な図になった...
+
+<br/>
+<br/>
+
+
+####"blankDiag" : 表示しない
+
+- 割愛
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+#グループ変数(エステティック)を追加してグレードアップ
+
+- **mapping = aes(color = グループ変数)** などでエステティック属性を追加
+
+```{r, fig.width=10, fig.height=8}
+p2 <- 
+iris %>% 
+  ggpairs(mapping = aes(color = Species), #Speciesでグループ分け
+
+          
+    diag=list(continuous="barDiag"),
+     # diagの連続×連続を積み上げヒストグラムに変更
+    lower=list(continuous="smooth", combo = "facetdensity")
+     # lowerの連続×連続を回帰線に，連続×離散を密度図に変更
+          )
+p2
+```
+
+<br/>
+
+
+- カラーパレットの変更や色の指定はここでは直接難しい
+    - 方法については後述
+    
+- **aes(alpha = 0.8)** 等で透過率はここで設定できる
+- パネル毎にエステティックを追加したいなら以下のようにlistの中に入れる
+
+```{r, fig.width=10, fig.height=8}
+iris %>% 
+  ggpairs(
+    upper=list(continuous="smooth", combo="facethist",
+               mapping = aes(color = Species)), 
+     # upperの連続×連続を回帰線に，連続×離散をfactor別ヒストグラムに変更
+     # Speciesでグループ分け
+    diag=list(continuous="barDiag"),
+     # diagの連続×連続をヒストグラムに変更
+    lower=list(continuous="cor", combo ="box")
+     # lowerの連続×連続を相関係数に，連続×離散をボックスプロットに変更
+          )
+```
+
+- upperだけにグループ化変数を設定できた
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+#wrap関数で少し手を加えてみる
+
+- wrap関数を使ってデフォルトの関数を上書きできる
+- wrap関数の第一引数(先頭)に既存関数名，続けて既存関数の「引数名 = 上書き値」で変更できる
+- ただ，ggpairsの既存関数の詳細がよくわからない(情報ください)ので，手探りで変えていく感じになる
+    - 自由度があまり高くなさそう
+    - 思い通りの図示をするなら，自作関数を作って組み込んでいく方が早い(詳細はさらに下記)
+
+<br/>
+
+##例1：ヒストグラムのビン幅(binwidth)を変更
+
+- デフォルトの"barDiag"と"facetbar"
+
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>% 
+  ggpairs(diag = list(continuous = "barDiag"),
+          lower = list(combpo = "facetbar"))
+```
+
+- wrapでビン幅を上書き
+
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Species) %>% 
+  ggpairs(diag = list(continuous = wrap("barDiag", binwidth = 1)),
+          lower = list(combo = wrap("facetbar", binwidth = 1)))
+```
+<br/>
+<br/>
+
+
+##例2：平滑化線の信頼区間(グレー)を消す
+
+```{r}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length) %>%  
+  ggpairs(upper = list(continuous = wrap("smooth_loess", se = FALSE)))
+```
+
+<br/>
+<br/>
+
+##例3：散布図のドットサイズや文字サイズ，さらに透過率を変える
+
+```{r, fig.width=10, fig.height=8}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length, Species) %>% 
+  
+  ggpairs(mapping = aes(color = Species),
+          #Speciesで色分け
+          
+          lower = list(continuous = wrap("smooth", size = 1.5, alpha = 0.8)),
+          #散布図付き回帰線の散布図のドットサイズを1.5に，また透過率を0.8に
+          
+          upper = list(continuous = wrap("cor", size = 5)),
+          #相関係数の文字サイズを5に
+          
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          
+          )
+
+
+```
+
+- いい感じになりました。これだけでもいろいろ見えてきそう。
+
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+##個人的見解
+
+- 先程も述べましたが，wrapを使った方法はあまり自由度は高くありません
+    - あくまで既存関数の上書き
+    - いろいろ細かい設定をするならば，やはり自作のggplot関数を作りましょう
+
+- ですが，例3のように少し手を加えてやるだけで見違えるようになるのも確かですね！
+
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+
+##上書き式で色やテーマを変更する
+
+- 参考ページ：<a href="https://codeday.me/jp/qa/20190531/907760.html"target="_blank">GGally :: ggpairsのカラーパレットを変更するにはどうすればいいですか？</a>
+- ggthemesパッケージで色やテーマを拡張できるのでおすすめ(ggplot2にもいくつか入ってる)
+    - 参考：<a href="https://assabu.exblog.jp/28956142/"target="_blank">
+ggthemesのテーマとカラーパレット 厚沢部文化財日誌</a>
+
+
+###色を変更する
+
+- まずはデフォルト
+
+```{r, fig.width=10, fig.height=8}
+iris %>% 
+  dplyr::select(Sepal.Length, Petal.Length, Species) %>% 
+  
+  ggpairs(mapping = aes(color = Species),
+          #Speciesで色分け
+          
+          lower = list(continuous = "smooth"),
+          #散布図付き回帰線の散布図のドットサイズを1.5に，また透過率を0.8に
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          
+          )
+```
+
+- グループ変数について，デフォルト色("Pastel1"パレット)がそのまま適用されている
+- 色の変更は以下のようにする
+    - 図を一旦格納(p)
+    - 格納先(p)の，全てのパネルについて同様に色を上書き(for文を用いる)
+    - 色指定にはscale_fillとscale_colorの区別があるので両方やっておくのがよい
+
+```{r, fig.width=10, fig.height=8}
+p <- iris %>%  #図をpに格納
+  
+  dplyr::select(Sepal.Length, Petal.Length, Species) %>% 
+  ggpairs(mapping = aes(color = Species),
+          #Speciesで色分け
+          
+          lower = list(continuous = "smooth"),
+          #散布図付き回帰線の散布図のドットサイズを1.5に，また透過率を0.8に
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          )
+
+for(i in 1:p$nrow) {
+  for(j in 1:p$ncol){
+    p[i,j] <- p[i,j] + 
+        scale_fill_manual(values=c("blue", "red", "green")) + 
+        scale_color_manual(values=c("blue", "red", "green"))
+  }
+}
+
+#パネルのi行j列のggplotにscale_fill_manualとscale_color_manualを追加
+
+p #図示
+```
+
+- カラーコードからの直接指定(p2)やパレットを変更(p3)するなら以下
+    - 参考　パレット一覧：<a href="http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/"target="_blank">Colors (ggplot2)</a>
+
+
+```{r, fig.width=10, fig.height=8}
+p2 <- iris %>%  #図をp2に格納
+  
+  dplyr::select(Sepal.Length, Petal.Length, Species) %>% 
+  ggpairs(mapping = aes(color = Species),
+          #Speciesで色分け
+          
+          lower = list(continuous = "smooth"),
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          )
+
+for(i in 1:p2$nrow) {
+  for(j in 1:p2$ncol){
+    p2[i,j] <- p2[i,j] + 
+        scale_fill_manual(values=c("#FFCCFF", "#FF99FF", "#FF66FF")) +
+        scale_color_manual(values=c("#FFCCFF", "#FF99FF", "#FF66FF")) 
+  }
+}
+
+#パネルのi行j列のggplotにscale_fill_manualとscale_color_manualを追加
+
+p2 #図示
+```
+
+<br/>
+
+```{r, fig.width=10, fig.height=8}
+p3 <- iris %>%  #図をp3に格納
+  
+  dplyr::select(Sepal.Length, Petal.Length, Species) %>% 
+  ggpairs(mapping = aes(color = Species),
+          #Speciesで色分け
+          
+          lower = list(continuous = "smooth"),
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          )
+
+for(i in 1:p3$nrow) {
+  for(j in 1:p3$ncol){
+    p3[i,j] <- p3[i,j] + 
+        scale_fill_brewer(palette = "Spectral") +
+        scale_color_brewer(palette = "Spectral") 
+  }
+}
+
+#パネルのi行j列のggplotにscale_fill_brewerとscale_color_brewerを追加
+#パレットには"Spectral"を指定した
+
+p3 #図示
+```
+
+<br/>
+<br/>
+
+###テーマを変更する
+
+- テーマの変更はggpairsの末尾に + で加えるだけでよい
+
+```{r, fig.width=10, fig.height=8}
+p4 <- iris %>% 
+  
+  dplyr::select(Sepal.Length, Petal.Length, Species) %>% 
+  ggpairs(mapping = aes(color = Species),
+          #Speciesで色分け
+        
+          lower = list(continuous = "smooth"),
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          ) + 
+  theme_classic()
+
+p4 #図示
+```
+
+- theme_classic()はggplot2収録
+
+```{r, fig.width=10, fig.height=8}
+p5 <- iris %>% 
+  
+  dplyr::select(Sepal.Length, Petal.Length, Species) %>% 
+  ggpairs(mapping = aes(color = Species),
+          #Speciesで色分け
+        
+          lower = list(continuous = "smooth"),
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          ) + 
+  theme_solarized(light = F) #テーマ変更
+
+for(i in 1:p5$nrow) {
+  for(j in 1:p5$ncol){
+    p5[i,j] <- p5[i,j] + 
+      scale_fill_solarized() +
+      scale_color_solarized() 
+  }
+}
+#各パネルの色を変更
+
+p5 #図示
+```
+
+
+- 最後はggthemes収録のテーマと色変更のあわせ技
+    - 見栄えはハマると沼！！！！！
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+###補足
+
+- 例えばp[2,1] は，「pに格納した図の2行目1列目のパネル」を意味します
+
+```{r}
+p[2,1]
+```
+
+- for文による色の変更はこの仕組みを利用しています
+- 特定のパネルだけ示したい時など便利です
+
+- これを使えば，特定のパネルだけ変更or差し替えも可能
+    - イマイチ使い所のイメージが湧かないですが...
+    - 参考 <a href="https://ggobi.github.io/ggally/#plot_matrix_subsetting"target="_blank">Plot Matrix Subsetting (GGally GitHub Pages)</a>
+
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+##追加情報
+
+###position_jitterでドットをずらす
+
+- 散布図系で，*position = position_jitter()* を追加すればドットをジッター(乱数でずらす)できます
+- 同じ値を取るなど，ドットが重なってしまう場合に便利！
+
+```{r}
+iris %>%
+  dplyr::select(Sepal.Length, Sepal.Width) %>% 
+  dplyr::mutate(Sepal.Length = round(Sepal.Length), Sepal.Width = round(Sepal.Width)) %>% 
+  #2変数を四捨五入してしまう(無理やりな例)
+  ggpairs(lower = list(continuous = "points"))
+
+```
+
+- lowerの散布図の点が重なってしまう
+
+```{r}
+iris %>%
+  dplyr::select(Sepal.Length, Sepal.Width) %>% 
+  dplyr::mutate(Sepal.Length = round(Sepal.Length), Sepal.Width = round(Sepal.Width)) %>% 
+  #2変数を四捨五入してしまう(無理やりな例)
+  ggpairs(lower = list(continuous = wrap("points", position = position_jitter(width = 0.2, height = 0.2))))
+```
+
+- 各値を乱数で少しずらして図示することで，密度的な視覚化が可能になる
+
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+#その他のオプション
+
+##図示する変数を指定する
+
+- columnsで変数名を入力して指定
+
+```{r}
+iris %>% 
+  ggpairs(columns = c("Sepal.Length", "Petal.Length", "Species"))
+
+```
+
+###使用例
+
+- グループ変数としてSpeciesを使用するが，図示するのは連続量のみ
+
+```{r, fig.width=10, fig.height=8}
+iris %>% 
+  ggpairs(columns = c("Sepal.Length", "Sepal.Width",
+                      "Petal.Length", "Petal.Width"),
+    
+          mapping = aes(color = Species),
+          #Speciesで色分け
+          
+          lower = list(continuous = "smooth"),
+          diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+          #3種の密度図が重なるので，透過率0.5にして可視化
+          )
+
+
+```
+
+- 個人的にはこれが便利でお気に入りです
+
+<br/>
+<br/>
+
+##図示する変数名を書き換える
+
+- columnLabelsで可視化する際の列名を指定できる
+- 日本語フォントはggplotと同様にひと手間加えてやる必要がある(Macのみ？)
+    - 参考：<a href="https://qiita.com/rmecab/items/fd1a08a1f1300839dbce"target="_blank">ggplot2 でプロット領域が文字化け(豆腐化)する(Mac)</a>
+
+
+```{r}
+iris %>% 
+  ggpairs(columns = c("Sepal.Length", "Petal.Length", "Species"),
+          columnLabels = c("がく片の長さ", "花びらの長さ", "種")) +
+  theme_gray(base_family = "HiraKakuPro-W3")
+```
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
+
+#自作ggplot関数を組み込む(上級)
+
+- より自由な図をパネルに組み込むには，自作のggplot関数を組み込んでやるのがよい
+- ggplot2と関数定義の知識が必須。ただし仕組み自体は非常に簡単なのでぜひどうぞ
+    - 参考：<a href="https://ggobi.github.io/ggally/#custom_functions"target="_blank">Custom Functions (GGally GitHub Pages)</a>
+
+
+##例：バイオリンプロットを組み込んでみる
+
+- upperの連続量×離散量を箱ひげからバイオリンプロットに変更したい
+- バイオリンプロットは既存オプションにないので自作
+
+<br/>
+
+- 関数の定義
+
+```{r}
+my_violin <- function(data, mapping, ...) { 
+  #デフォルトの引数をほかに設定するならfunction()内に追加しておく
+  
+  #以下にggplotを定義
+  ggplot(data = data, mapping = mapping) +
+    geom_violin(...)
+}
+```
+
+<br/>
+
+- 自作関数を組み込み
+
+```{r, fig.width=10, fig.height=8}
+iris %>% 
+  ggpairs(
+    columns = c("Sepal.Length", "Sepal.Width", "Species"), #変数の指定
+    mapping = aes(color = Species), #Speciesでグループ分け
+      
+    upper=list(combo = my_violin),
+     # upperの連続×離散に，自作した関数を設定(""でくくらなくてよい)
+    
+    diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+     # diagの連続×連続をヒストグラムに変更
+          )
+
+```
+
+<br/>
+<br/>
+
+- 関数定義で「...」を入れておくと，wrapでgeom_violinを上書きできるのでなにかと便利
+    - function()内の「...」はざっくりいうと，「その他の引数」という意味
+    - その他の命令も受け付けますよ，それは「...」部分に反映させますよ，という感じ
+
+
+```{r, fig.width=10, fig.height=8}
+iris %>% 
+  ggpairs(
+    columns = c("Sepal.Length", "Sepal.Width", "Species"), #変数の指定
+    mapping = aes(color = Species), #Speciesでグループ分け
+      
+    upper=list(combo = wrap(my_violin, trim = FALSE)),
+     # my_vioinをwrapしてtrim = FALSEに上書き
+    
+    diag = list(continuous = wrap("densityDiag", alpha = 0.5))
+     # diagの連続×連続をヒストグラムに変更
+          )
+
+```
+
+- geom_violinはデフォルトでtrim = TRUEだが，上記のようにwrapでFALSEに書き換え
+    - 尻尾の切れない図にできた
+
+<br/>
+
+- ご自身のお気に入りplotをぜひ活用してみて下さい！
+
+<br/>
+<a href="#top">Back to top</a>
+<br/>
+<br/>
+
